@@ -1,0 +1,206 @@
+<!--
+ DAPjs
+ Copyright Arm Limited 2018
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+#sendError { color: red;}
+#connectError { color: red;}
+#readyToReceive { color: green; }
+#sendSuccess { color: green; }
+
+</style>
+
+    <?!= include('dapjs'); ?>
+</head>
+<body>
+    <div id="step1">
+      <h2>Step 1: Put code onto the microbit</h2>
+      <p>Write your own code <a href="https://makecode.microbit.org/" target="_blank">here</a> or use one of the examples below. 
+      <br>
+      <b> You might need to change the number of measurements, and the time between measurements.</b>  
+      <br>
+      <br>
+      
+      <u>Temperature vs time</u>
+      <br><b>x:</b> time in milliseconds
+      <br><b>y:</b> temperature in degrees Celsius
+      <br><b>code:</b>       <a href="https://makecode.microbit.org/_6freFqERa3Dt" target="_blank">click here</a><br>
+      <br>
+      
+      
+      <u>Acceleration vs time</u>
+      <br><b>x:</b> time in milliseconds
+      <br><b>y:</b> acceleration in mg (1 mg = 0.0098 m/s<sup>2</sup>)
+      <br><b>code:</b>       <a href="https://makecode.microbit.org/_VigEUd06rJas" target="_blank">click here</a><br>
+      <br><b>instructions:</b> keep the microbit very still when pressing 'A'. It will calibrate then show a tick when ready. The microbit will automatically start recording once it detects any motion.
+      <br>
+
+
+      <u>Velocity vs time</u>
+      <br><b>x:</b> time in milliseconds
+      <br><b>y:</b> velocity in mg.ms (1 mg.ms = 0.0000098 m/s)
+      <br><b>code:</b>       <a href="" target="_blank">click here</a><br>
+      <br><b>instructions:</b> keep the microbit very still when pressing 'A'. It will calibrate then show a tick when ready. The microbit will automatically start recording once it detects any motion.
+      <br>
+
+
+      <a href="https://makecode.microbit.org/_eVCcWk6aXPVy" target="_blank">Velocity - time data logger</a><br>
+      
+      </p>
+      
+      <a href="#" onclick="showStep(2)">Next Step</a>
+    </div>
+    
+    <div id="step2" hidden>
+      <h2>Step 2: Collect the data</h2>
+      <p>Put your microbit into your experiment then press button A to start collecting the data<p>
+      <a href="#" onclick="showStep(3)">Next Step</a>
+    </div>
+    
+    <div id="step3" hidden>
+      <h2>Step 3: Download the data </h2>
+      <p>Connect the microbit into the computer then click the button below</p>
+      <button id="connect">Start listening on USB serial port</button>
+      <p id="connectError"></p>
+      <p id="readyToReceive" hidden>
+        Ready to receive USB serial data
+        <br>Select a destination cell in the spreadsheet then press button B to download the data.
+        <br>
+        <span id="sendError"></span>
+        <br>
+        <span id="sendSuccess"></span>
+      </p>
+      <a href="#" onclick="showStep(4)">More about the microbit</a>      
+    </div>
+    
+    <div id="step4" hidden>
+      <h2>Limitations</h2>
+      <p>
+      The microbit has limited memory which means it can store a maxmimum of around 200 integers i.e. 100 data points.
+      <br>
+      If you store the numbers as decimals, it will only be able to store ~50 data points
+      </p>
+      <h2>How does it work?</h2>
+      <p>..</p>
+      
+      <a href="#" onclick="showStep(1)">Back to start</a>      
+    </div>
+    
+
+    <script>
+
+      
+        document.getElementById("connect").onclick = async () => {
+            await navigator.usb.requestDevice({
+                filters: [{vendorId: 0xD28}]
+            })
+            .then(function(device) {
+            
+                if (device.usbVersionMinor < 1) { 
+                   throw("A newer firmware is required on your microbit. Please visit <a target='_blank' href='https://microbit.org/guide/firmware/'>this page to update it</a>"); 
+                }
+                window.transport = new DAPjs.WebUSB(device);
+            })
+            .catch(function(error) {document.getElementById("connectError").innerHTML = error});
+            
+            
+            var target = new DAPjs.DAPLink(window.transport);
+            window.target = target;
+            
+            navigator.usb.addEventListener('disconnect', function(device) {
+                window.target.stopSerialRead();
+            });
+            navigator.usb.addEventListener('connect', function(device) {
+                window.target.reconnect().then(function() {
+                  window.target.startSerialRead();
+                });
+            });
+            
+            target.on(DAPjs.DAPLink.EVENT_SERIAL_DATA, data => {
+                    (function waitForFoo(paramdata){
+                      if (!window.buffering) {
+                          addToBuffer(paramdata);
+                          return;
+                        }
+                      setTimeout(waitForFoo, 20, paramdata);
+                  })(data);
+              });
+              
+              
+            target.connect()
+            .then(function() {
+               target.startSerialRead();
+               console.log("started serial read");
+               document.getElementById("readyToReceive").hidden = false; 
+               document.getElementById("connectError").innerHTML = ""; 
+               
+            });
+        };
+        
+        window.timerId = null;
+        window.buffer = "";
+        
+        function addToBuffer(data) {
+          window.buffering = true;
+          if (window.timerId) {
+            clearTimeout(window.timerId);
+            timerId = null;
+          }
+          window.buffer = window.buffer + data;
+          window.timerId = setTimeout(function(){ 
+           sendBuffer(window.buffer);
+          }, 500);
+          
+          window.buffering = false;
+        }
+        
+        function sendBuffer(buffer)  { 
+                google.script.run
+                  .withSuccessHandler(
+                    function(success) {  
+                      window.lastBuffer = buffer;
+                      window.buffer = "";
+                      document.getElementById("sendSuccess").innerHTML = "data sent: " + buffer; 
+                    }
+                  ).withFailureHandler(
+                    function(error) {  
+                      window.lastBuffer = buffer;
+                      window.buffer = "";
+                      document.getElementById("sendError").innerHTML = error + " with data: " + buffer;
+                    }
+                  ).writeToSheet(buffer); //data is a string    
+        }
+        
+        
+        function showStep(n) {
+          var divs = [
+          document.getElementById("step1"),
+          document.getElementById("step2"),
+          document.getElementById("step3"),
+          document.getElementById("step4")
+          ];
+          for (var div, i = 0; div = divs[i]; i++) {
+            div.hidden = (i+1 != n);
+          }
+        }
+    </script>
+</body>
+</html>
